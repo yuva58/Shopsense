@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { MapPin, ShieldCheck, Tag } from 'lucide-react'
+import { ShieldCheck, Tag } from 'lucide-react'
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('')
@@ -18,6 +18,17 @@ export default function RegisterPage() {
     const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
     const router = useRouter()
+
+    const toSafeUsername = (value: string) => {
+        const base = value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
+        return (base || 'user').slice(0, 24)
+    }
+
+    const withSuffix = (base: string, userId: string) => {
+        const suffix = userId.slice(0, 6).toLowerCase()
+        const trimmed = base.slice(0, Math.max(1, 24 - (suffix.length + 1)))
+        return `${trimmed}_${suffix}`
+    }
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -44,32 +55,46 @@ export default function RegisterPage() {
                 return
             }
 
-            if (authData.user) {
-                const { error: profileError } = await supabase
-                    .from('profiles')
-                    .insert([
-                        {
-                            id: authData.user.id,
-                            username: username,
-                            role: role
-                        }
-                    ])
-
-                if (profileError) {
-                    console.error("Profile creation error:", profileError)
-                    setError('Account created, but profile failed to initialize. Please contact support.')
-                    setLoading(false)
-                    return
-                }
-
-                if (authData.session === null) {
-                    setSuccessMsg('Registration successful! Please check your email to verify your account.')
-                } else {
-                    router.push('/dashboard')
-                    router.refresh()
-                }
+            const registeredUser = authData.user
+            if (!registeredUser) {
+                setError('Registration completed without a user record. Please try again.')
+                return
             }
-        } catch (networkError) {
+
+            // In email-confirmation mode Supabase returns no session at sign-up time.
+            // Profile creation is completed in /auth/callback after verification.
+            if (authData.session === null) {
+                setSuccessMsg('Registration successful! Please check your email to verify your account.')
+                return
+            }
+
+            const preferredUsername = toSafeUsername(username)
+            const insertProfile = async (candidateUsername: string) =>
+                supabase.from('profiles').upsert(
+                    {
+                        id: registeredUser.id,
+                        username: candidateUsername,
+                        role,
+                    },
+                    { onConflict: 'id', ignoreDuplicates: true }
+                )
+
+            let { error: profileError } = await insertProfile(preferredUsername)
+            if (profileError?.code === '23505') {
+                const fallbackUsername = withSuffix(preferredUsername, registeredUser.id)
+                const retry = await insertProfile(fallbackUsername)
+                profileError = retry.error
+            }
+
+            if (profileError) {
+                console.error('Profile creation error:', profileError)
+                setError('Account created, but profile setup is pending. Please sign in once verification is complete.')
+                return
+            }
+
+            router.push('/dashboard')
+            router.refresh()
+        } catch {
             setError('A network error occurred. Please try again later.')
         } finally {
             setLoading(false)
