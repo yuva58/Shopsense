@@ -6,7 +6,27 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { MapPin, ShieldCheck, Zap } from 'lucide-react'
+import { MapPin, ShieldCheck } from 'lucide-react'
+
+type AppRole = 'customer' | 'shop_owner' | 'admin'
+
+const toSafeUsername = (value: string) => {
+    const base = value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
+    return (base || 'user').slice(0, 24)
+}
+
+const withSuffix = (base: string, userId: string) => {
+    const suffix = userId.slice(0, 6).toLowerCase()
+    const trimmed = base.slice(0, Math.max(1, 24 - (suffix.length + 1)))
+    return `${trimmed}_${suffix}`
+}
+
+const toValidRole = (value: unknown): AppRole => {
+    if (value === 'shop_owner' || value === 'admin' || value === 'customer') {
+        return value
+    }
+    return 'customer'
+}
 
 export default function LoginPage() {
     const [email, setEmail] = useState('')
@@ -20,12 +40,44 @@ export default function LoginPage() {
         setLoading(true)
         setError(null)
         const supabase = createClient()
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         setLoading(false)
 
         if (error) {
             setError(error.message)
         } else {
+            const user = data.user
+            if (user) {
+                const metadata = user.user_metadata ?? {}
+                const preferredRole = toValidRole(metadata.role)
+                const preferredUsername = toSafeUsername(
+                    typeof metadata.username === 'string' && metadata.username.trim().length > 0
+                        ? metadata.username
+                        : (user.email?.split('@')[0] ?? 'user')
+                )
+
+                const upsertProfile = async (candidateUsername: string) =>
+                    supabase.from('profiles').upsert(
+                        {
+                            id: user.id,
+                            username: candidateUsername,
+                            role: preferredRole,
+                        },
+                        { onConflict: 'id', ignoreDuplicates: true }
+                    )
+
+                let { error: profileError } = await upsertProfile(preferredUsername)
+                if (profileError?.code === '23505') {
+                    const fallbackUsername = withSuffix(preferredUsername, user.id)
+                    const retry = await upsertProfile(fallbackUsername)
+                    profileError = retry.error
+                }
+
+                if (profileError) {
+                    console.error('Profile bootstrap failed during login:', profileError)
+                }
+            }
+
             router.push('/dashboard')
             router.refresh()
         }
