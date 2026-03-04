@@ -104,7 +104,7 @@ export default function LandingPage() {
 
           {/* Trust Panel Mockup */}
           <div className="bg-white rounded-[18px] p-5">
-            <h3 className="text-xl font-bold text-heading mb-1">Today's best local basket</h3>
+            <h3 className="text-xl font-bold text-heading mb-1">Today&apos;s best local basket</h3>
             <p className="text-xs text-body mb-4">AI removed 12 suspicious reviews and ranked by trusted value.</p>
 
             <div className="space-y-3 mb-5">

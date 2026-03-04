@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { MapPin, Search, Route, Loader2, TrendingDown, TrendingUp, Minus, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react'
 
 // (Same interfaces and logic as before, just completely restyled for the Pencil UI)
@@ -103,7 +102,6 @@ export default function SearchPage() {
     const [predictionStatus, setPredictionStatus] = useState<string | null>(null)
     const [searchNote, setSearchNote] = useState<string | null>(null)
     const [sortBy, setSortBy] = useState<'best_price' | 'nearest'>('best_price')
-    const searchParams = useSearchParams()
     const autoSearchDone = useRef(false)
 
     const handleSearch = useCallback(async (overrideQuery?: string) => {
@@ -198,13 +196,15 @@ export default function SearchPage() {
 
     // Auto-search if ?q= param is present (e.g. from overview page search bar)
     useEffect(() => {
-        const q = searchParams.get('q')?.trim()
+        if (typeof window === 'undefined' || autoSearchDone.current) return
+
+        const q = new URLSearchParams(window.location.search).get('q')?.trim()
         if (!q || autoSearchDone.current) return
 
         autoSearchDone.current = true
         setQuery(q)
         void handleSearch(q)
-    }, [searchParams, handleSearch])
+    }, [handleSearch])
 
     const loadPredictions = async () => {
         if (!results.length) return

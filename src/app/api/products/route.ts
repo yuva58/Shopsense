@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
     let query = supabase
         .from('products')
         .select('*, shops(name, address)')
-        .eq('in_stock', true)
 
     if (shopId) query = query.eq('shop_id', shopId)
     if (search) query = query.ilike('name', `%${search}%`)
