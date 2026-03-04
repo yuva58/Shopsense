@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MapPin, Search, Route, Loader2, TrendingDown, TrendingUp, Minus, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react'
@@ -30,6 +32,61 @@ interface CatalogProduct {
     shops?: { name?: string; address?: string } | Array<{ name?: string; address?: string }> | null
 }
 
+const mapCatalogProductsToResults = (products: CatalogProduct[]): ShopResult[] =>
+    products.map((p) => {
+        const shop = Array.isArray(p.shops) ? p.shops[0] : p.shops
+        return {
+            shop_id: p.shop_id,
+            shop_name: shop?.name || 'Unknown shop',
+            address: shop?.address || 'Address unavailable',
+            distance_metres: -1, // -1 means distance unavailable (global result)
+            product_id: p.id,
+            product_name: p.name,
+            current_price: Number(p.current_price),
+        }
+    })
+
+const getLocation = (): Promise<{ lat: number; lng: number }> =>
+    new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error('Geolocation not supported'))
+            return
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            () => reject(new Error('Location access denied'))
+        )
+    })
+
+const buildSearchCandidates = (rawQuery: string) => {
+    const trimmed = rawQuery.trim()
+    const lower = trimmed.toLowerCase()
+    const candidates = new Set<string>([trimmed])
+
+    const aliasMap: Record<string, string> = {
+        miruku: 'milk',
+        miluku: 'milk',
+        paal: 'milk',
+        muttai: 'eggs',
+        anda: 'eggs',
+        rotti: 'bread',
+        roti: 'bread',
+    }
+
+    if (aliasMap[lower]) {
+        candidates.add(aliasMap[lower])
+    }
+
+    for (const [misspelled, corrected] of Object.entries(aliasMap)) {
+        if (lower.includes(misspelled)) {
+            candidates.add(lower.replaceAll(misspelled, corrected))
+        }
+    }
+
+    return Array.from(candidates)
+}
+
 export default function SearchPage() {
     const [query, setQuery] = useState('')
     const [results, setResults] = useState<ShopResult[]>([])
@@ -49,48 +106,8 @@ export default function SearchPage() {
     const searchParams = useSearchParams()
     const autoSearchDone = useRef(false)
 
-    const getLocation = (): Promise<{ lat: number; lng: number }> =>
-        new Promise((resolve, reject) => {
-            if (!navigator.geolocation) {
-                reject(new Error('Geolocation not supported'))
-                return
-            }
-            navigator.geolocation.getCurrentPosition(
-                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                () => reject(new Error('Location access denied'))
-            )
-        })
-
-    const buildSearchCandidates = (rawQuery: string) => {
-        const trimmed = rawQuery.trim()
-        const lower = trimmed.toLowerCase()
-        const candidates = new Set<string>([trimmed])
-
-        const aliasMap: Record<string, string> = {
-            miruku: 'milk',
-            miluku: 'milk',
-            paal: 'milk',
-            muttai: 'eggs',
-            anda: 'eggs',
-            rotti: 'bread',
-            roti: 'bread',
-        }
-
-        if (aliasMap[lower]) {
-            candidates.add(aliasMap[lower])
-        }
-
-        for (const [misspelled, corrected] of Object.entries(aliasMap)) {
-            if (lower.includes(misspelled)) {
-                candidates.add(lower.replaceAll(misspelled, corrected))
-            }
-        }
-
-        return Array.from(candidates)
-    }
-
-    const handleSearch = useCallback(async () => {
-        const trimmedQuery = query.trim()
+    const handleSearch = useCallback(async (overrideQuery?: string) => {
+        const trimmedQuery = (overrideQuery ?? query).trim()
         if (!trimmedQuery) return
 
         setHasSearched(true)
@@ -107,66 +124,69 @@ export default function SearchPage() {
         try {
             let userCoords = coords
             if (!userCoords) {
-                setLocating(true)
-                userCoords = await getLocation()
-                setCoords(userCoords)
+                try {
+                    setLocating(true)
+                    userCoords = await getLocation()
+                    setCoords(userCoords)
+                } catch {
+                    setSearchNote('Location unavailable. Showing citywide product matches instead.')
+                } finally {
+                    setLocating(false)
+                }
             }
 
             const searchCandidates = buildSearchCandidates(trimmedQuery)
 
-            for (const candidate of searchCandidates) {
-                const params = new URLSearchParams({
-                    lat: String(userCoords.lat),
-                    lng: String(userCoords.lng),
-                    radius: '5000',
-                    product: candidate,
-                })
-                const res = await fetch(`/api/shops/nearby?${params}`)
-                const json = await res.json()
+            if (userCoords) {
+                for (const candidate of searchCandidates) {
+                    const params = new URLSearchParams({
+                        lat: String(userCoords.lat),
+                        lng: String(userCoords.lng),
+                        radius: '5000',
+                        product: candidate,
+                    })
+                    const res = await fetch(`/api/shops/nearby?${params}`)
+                    const json = await res.json()
 
-                if (!res.ok) throw new Error(json.error || 'Failed to fetch shops')
-                const nearbyResults = (json.shops || []) as ShopResult[]
-                if (nearbyResults.length > 0) {
-                    setResults(nearbyResults)
-                    setSearchScope('nearby')
-                    if (candidate.toLowerCase() !== trimmedQuery.toLowerCase()) {
-                        setSearchNote(`No exact match for "${trimmedQuery}". Showing nearby results for "${candidate}".`)
-                    }
-                    return
-                }
-
-                // Fallback: broaden the search across the full catalog when nearby is empty.
-                const catalogRes = await fetch(`/api/products?search=${encodeURIComponent(candidate)}`)
-                const catalogJson = await catalogRes.json()
-                if (catalogRes.ok) {
-                    const products = (catalogJson.products || []) as CatalogProduct[]
-                    if (products.length > 0) {
-                        const mapped: ShopResult[] = products.map((p) => {
-                            const shop = Array.isArray(p.shops) ? p.shops[0] : p.shops
-                            return {
-                                shop_id: p.shop_id,
-                                shop_name: shop?.name || 'Unknown shop',
-                                address: shop?.address || 'Address unavailable',
-                                distance_metres: -1, // -1 means distance unavailable (global result)
-                                product_id: p.id,
-                                product_name: p.name,
-                                current_price: Number(p.current_price),
-                            }
-                        })
-                        setResults(mapped)
-                        setSearchScope('global')
+                    if (!res.ok) throw new Error(json.error || 'Failed to fetch shops')
+                    const nearbyResults = (json.shops || []) as ShopResult[]
+                    if (nearbyResults.length > 0) {
+                        setResults(nearbyResults)
+                        setSearchScope('nearby')
                         if (candidate.toLowerCase() !== trimmedQuery.toLowerCase()) {
-                            setSearchNote(`No exact match for "${trimmedQuery}". Showing citywide results for "${candidate}".`)
+                            setSearchNote(`No exact match for "${trimmedQuery}". Showing nearby results for "${candidate}".`)
                         }
                         return
                     }
                 }
             }
 
+            for (const candidate of searchCandidates) {
+                const catalogRes = await fetch(`/api/products?search=${encodeURIComponent(candidate)}`)
+                const catalogJson = await catalogRes.json()
+                if (!catalogRes.ok) throw new Error(catalogJson.error || 'Failed to fetch products')
+
+                const products = (catalogJson.products || []) as CatalogProduct[]
+                if (products.length > 0) {
+                    setResults(mapCatalogProductsToResults(products))
+                    setSearchScope('global')
+                    if (candidate.toLowerCase() !== trimmedQuery.toLowerCase()) {
+                        setSearchNote(`No exact match for "${trimmedQuery}". Showing citywide results for "${candidate}".`)
+                    }
+                    return
+                }
+            }
+
             const allProductsRes = await fetch('/api/products')
-            if (allProductsRes.ok) {
-                const allProductsJson = await allProductsRes.json()
-                setCatalogEmpty((allProductsJson.products || []).length === 0)
+            const allProductsJson = await allProductsRes.json()
+            if (!allProductsRes.ok) throw new Error(allProductsJson.error || 'Failed to fetch products')
+
+            const allProducts = (allProductsJson.products || []) as CatalogProduct[]
+            setCatalogEmpty(allProducts.length === 0)
+            if (allProducts.length > 0) {
+                setResults(mapCatalogProductsToResults(allProducts))
+                setSearchScope('global')
+                setSearchNote(`No exact matches for "${trimmedQuery}". Showing all products instead.`)
             }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -179,86 +199,12 @@ export default function SearchPage() {
     // Auto-search if ?q= param is present (e.g. from overview page search bar)
     useEffect(() => {
         const q = searchParams.get('q')?.trim()
-        if (q && !autoSearchDone.current) {
-            autoSearchDone.current = true
-            setQuery(q)
-                ; (async () => {
-                    setHasSearched(true)
-                    setLastSearchedQuery(q)
-                    setLoading(true)
-                    setError(null)
-                    setResults([])
-                    setSearchScope(null)
-                    setCatalogEmpty(false)
-                    setSelectedShops([])
-                    setPredictionStatus(null)
-                    setSearchNote(null)
-                    try {
-                        setLocating(true)
-                        const userCoords = await getLocation()
-                        setCoords(userCoords)
-                        setLocating(false)
-                        const candidates = buildSearchCandidates(q)
-                        for (const candidate of candidates) {
-                            const params = new URLSearchParams({
-                                lat: String(userCoords.lat),
-                                lng: String(userCoords.lng),
-                                radius: '5000',
-                                product: candidate,
-                            })
-                            const res = await fetch(`/api/shops/nearby?${params}`)
-                            const json = await res.json()
-                            if (!res.ok) throw new Error(json.error || 'Failed to fetch shops')
-                            const nearbyResults = (json.shops || []) as ShopResult[]
-                            if (nearbyResults.length > 0) {
-                                setResults(nearbyResults)
-                                setSearchScope('nearby')
-                                if (candidate.toLowerCase() !== q.toLowerCase()) {
-                                    setSearchNote(`No exact match for "${q}". Showing nearby results for "${candidate}".`)
-                                }
-                                return
-                            }
-                            const catalogRes = await fetch(`/api/products?search=${encodeURIComponent(candidate)}`)
-                            const catalogJson = await catalogRes.json()
-                            if (catalogRes.ok) {
-                                const products = (catalogJson.products || []) as CatalogProduct[]
-                                if (products.length > 0) {
-                                    const mapped: ShopResult[] = products.map((p) => {
-                                        const shop = Array.isArray(p.shops) ? p.shops[0] : p.shops
-                                        return {
-                                            shop_id: p.shop_id,
-                                            shop_name: shop?.name || 'Unknown shop',
-                                            address: shop?.address || 'Address unavailable',
-                                            distance_metres: -1,
-                                            product_id: p.id,
-                                            product_name: p.name,
-                                            current_price: Number(p.current_price),
-                                        }
-                                    })
-                                    setResults(mapped)
-                                    setSearchScope('global')
-                                    if (candidate.toLowerCase() !== q.toLowerCase()) {
-                                        setSearchNote(`No exact match for "${q}". Showing citywide results for "${candidate}".`)
-                                    }
-                                    return
-                                }
-                            }
-                        }
-                        const allProductsRes = await fetch('/api/products')
-                        if (allProductsRes.ok) {
-                            const allProductsJson = await allProductsRes.json()
-                            setCatalogEmpty((allProductsJson.products || []).length === 0)
-                        }
-                    } catch (err: unknown) {
-                        setError(err instanceof Error ? err.message : 'Something went wrong')
-                    } finally {
-                        setLoading(false)
-                        setLocating(false)
-                    }
-                })()
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams])
+        if (!q || autoSearchDone.current) return
+
+        autoSearchDone.current = true
+        setQuery(q)
+        void handleSearch(q)
+    }, [searchParams, handleSearch])
 
     const loadPredictions = async () => {
         if (!results.length) return
@@ -476,7 +422,7 @@ export default function SearchPage() {
                     />
                 </div>
                 <button
-                    onClick={handleSearch}
+                    onClick={() => handleSearch()}
                     disabled={loading || locating}
                     className="h-[56px] px-8 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-[14px] font-medium text-base transition-colors flex items-center gap-2 shadow-sm"
                 >
@@ -844,4 +790,3 @@ export default function SearchPage() {
         </div>
     )
 }
-
