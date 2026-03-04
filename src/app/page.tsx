@@ -19,9 +19,9 @@ export default function LandingPage() {
 
         {/* Links */}
         <div className="hidden md:flex items-center gap-6">
-          <Link href="#" className="text-[15px] font-medium text-body hover:text-heading transition-colors">How it works</Link>
-          <Link href="#" className="text-[15px] font-medium text-body hover:text-heading transition-colors">Features</Link>
-          <Link href="#" className="text-[15px] font-medium text-body hover:text-heading transition-colors">For shop owners</Link>
+          <Link href="/login" className="text-[15px] font-medium text-body hover:text-heading transition-colors">How it works</Link>
+          <Link href="/dashboard" className="text-[15px] font-medium text-body hover:text-heading transition-colors">Features</Link>
+          <Link href="/register" className="text-[15px] font-medium text-body hover:text-heading transition-colors">For shop owners</Link>
         </div>
 
         {/* Actions */}
@@ -54,7 +54,7 @@ export default function LandingPage() {
             {/* Search Mockup Area */}
             <div className="bg-[#F8FAF6] border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3">
               <div className="flex-1 flex gap-3">
-                <input type="text" placeholder="Search product e.g., milk, bread..." className="flex-1 h-12 bg-white rounded-lg px-4 border border-border text-sm outline-none focus:border-primary" />
+                <input type="text" aria-label="Search product" placeholder="Search product e.g., milk, bread..." className="flex-1 h-12 bg-white rounded-lg px-4 border border-border text-sm outline-none focus:border-primary" />
                 <div className="w-32 h-12 bg-white rounded-lg px-4 border border-border flex items-center text-sm text-body">
                   Radius: 5 km
                 </div>

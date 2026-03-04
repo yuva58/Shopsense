@@ -9,8 +9,12 @@ export async function GET(request: NextRequest) {
     const radius = parseFloat(searchParams.get('radius') || '5000') // metres, default 5 km
     const product = searchParams.get('product') || ''
 
-    if (isNaN(lat) || isNaN(lng)) {
-        return NextResponse.json({ error: 'lat and lng are required' }, { status: 400 })
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return NextResponse.json({ error: 'Valid latitude and longitude are required within global bounds' }, { status: 400 })
+    }
+
+    if (isNaN(radius) || radius < 0 || radius > 50000) {
+        return NextResponse.json({ error: 'Radius must be a positive number under 50000 metres' }, { status: 400 })
     }
 
     const supabase = await createClient()

@@ -24,46 +24,54 @@ export default function RegisterPage() {
         setError(null)
         setSuccessMsg(null)
 
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    username: username,
-                    role: role,
+        try {
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        username: username,
+                        role: role,
+                    }
+                }
+            })
+
+            if (authError) {
+                setError(authError.message)
+                setLoading(false)
+                return
+            }
+
+            if (authData.user) {
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .insert([
+                        {
+                            id: authData.user.id,
+                            username: username,
+                            role: role
+                        }
+                    ])
+
+                if (profileError) {
+                    console.error("Profile creation error:", profileError)
+                    setError('Account created, but profile failed to initialize. Please contact support.')
+                    setLoading(false)
+                    return
+                }
+
+                if (authData.session === null) {
+                    setSuccessMsg('Registration successful! Please check your email to verify your account.')
+                } else {
+                    router.push('/dashboard')
+                    router.refresh()
                 }
             }
-        })
-
-        if (authError) {
-            setError(authError.message)
+        } catch (networkError) {
+            setError('A network error occurred. Please try again later.')
+        } finally {
             setLoading(false)
-            return
         }
-
-        if (authData.user) {
-            const { error: profileError } = await supabase
-                .from('profiles')
-                .insert([
-                    {
-                        id: authData.user.id,
-                        username: username,
-                        role: role
-                    }
-                ])
-
-            if (profileError) {
-                console.error("Profile creation error:", profileError)
-            }
-
-            if (authData.session === null) {
-                setSuccessMsg('Registration successful! Please check your email to verify your account.')
-            } else {
-                router.push('/dashboard')
-                router.refresh()
-            }
-        }
-        setLoading(false)
     }
 
     return (
@@ -142,6 +150,7 @@ export default function RegisterPage() {
                         <div>
                             <input
                                 type="text"
+                                aria-label="Username"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 placeholder="Username"
@@ -153,6 +162,7 @@ export default function RegisterPage() {
                         <div>
                             <input
                                 type="email"
+                                aria-label="Email address"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 placeholder="Email address"
@@ -164,6 +174,7 @@ export default function RegisterPage() {
                         <div>
                             <input
                                 type="password"
+                                aria-label="Password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="Password (min 6 chars)"

@@ -107,7 +107,8 @@ export default function SearchPage() {
     const openRoute = () => {
         if (!coords || !selectedShops.length) return
         const selected = results.filter((r) => selectedShops.includes(r.shop_id))
-        const waypoints = selected.map((s) => encodeURIComponent(s.address)).join('|')
+        // exclude destination from waypoints to prevent redundant routing loops
+        const waypoints = selected.slice(0, -1).map((s) => encodeURIComponent(s.address)).join('|')
         const url = `https://www.google.com/maps/dir/?api=1&origin=${coords.lat},${coords.lng}&destination=${encodeURIComponent(selected[selected.length - 1].address)}&waypoints=${waypoints}&travelmode=driving`
         window.open(url, '_blank')
     }
@@ -148,6 +149,7 @@ export default function SearchPage() {
                     </div>
                     <input
                         type="text"
+                        aria-label="Search items"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -172,7 +174,7 @@ export default function SearchPage() {
             )}
 
             {/* Content Split: Results (Left) vs insights (Right) */}
-            <div className="flex flex-1 gap-6 overflow-hidden">
+            <div className="flex flex-col lg:flex-row flex-1 gap-6 overflow-hidden">
 
                 {/* Left side: Results List */}
                 <div className="flex-1 flex flex-col min-w-0">
@@ -267,7 +269,7 @@ export default function SearchPage() {
                 </div>
 
                 {/* Right side: Decision Panel / Route building */}
-                <div className="hidden lg:flex flex-col w-[360px] gradient-dark-panel rounded-[24px] p-6 text-white shrink-0 shadow-lg relative overflow-hidden">
+                <div className="flex flex-col w-full lg:w-[360px] gradient-dark-panel rounded-[24px] p-6 text-white shrink-0 shadow-lg relative overflow-y-auto lg:overflow-hidden">
                     <div className="relative z-10 flex flex-col h-full">
                         <h3 className="font-bold text-xl mb-1">Route & Insights</h3>
                         <p className="text-white/70 text-sm mb-6">Select shops on the left to build your optimized shopping route.</p>
@@ -279,8 +281,8 @@ export default function SearchPage() {
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    {selectedResultObjects.map((s, i) => (
-                                        <div key={i} className="bg-white/10 rounded-xl p-4 border border-white/10">
+                                    {selectedResultObjects.map((s) => (
+                                        <div key={s.shop_id} className="bg-white/10 rounded-xl p-4 border border-white/10">
                                             <div className="flex justify-between items-start mb-1">
                                                 <span className="font-semibold text-sm line-clamp-1 pr-4">{s.shop_name}</span>
                                                 <span className="font-bold text-emerald-400 shrink-0">₹{s.current_price}</span>

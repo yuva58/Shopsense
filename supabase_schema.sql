@@ -29,11 +29,11 @@ CREATE INDEX shops_location_idx ON public.shops USING GIST (location);
 -- 3. Products
 CREATE TABLE public.products (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  shop_id UUID REFERENCES public.shops(id) ON DELETE CASCADE,
+  shop_id UUID REFERENCES public.shops(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   image_url TEXT,
-  current_price DECIMAL(10, 2) NOT NULL,
+  current_price DECIMAL(10, 2) NOT NULL CHECK (current_price >= 0),
   category TEXT,
   in_stock BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -47,6 +47,10 @@ CREATE TABLE public.price_history (
   recorded_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+ALTER TABLE public.price_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public price_history is viewable by everyone." ON public.price_history FOR SELECT USING (true);
+-- Inserts to price_history are handled exclusively by the server (Service Role key) which bypasses RLS.
+
 -- 5. Reviews (For AI Sentiment Analysis)
 CREATE TABLE public.reviews (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -56,7 +60,7 @@ CREATE TABLE public.reviews (
   rating INTEGER CHECK (rating >= 1 AND rating <= 5),
   -- Populated by OpenAI later
   ai_sentiment_score TEXT CHECK (ai_sentiment_score IN ('positive', 'negative', 'fake', 'pending')) DEFAULT 'pending',
-  ai_trust_score DECIMAL(3, 2),
+  ai_trust_score DECIMAL(3, 2) CHECK (ai_trust_score >= 0 AND ai_trust_score <= 1),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -66,10 +70,34 @@ ALTER TABLE public.shops ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 
--- Basic Public Read Access for Shops, Products, and Reviews
+-- ── PROFILES POLICIES ────────────────────────────────────────────────────────
+CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- ── SHOPS POLICIES ───────────────────────────────────────────────────────────
 CREATE POLICY "Public shops are viewable by everyone." ON public.shops FOR SELECT USING (true);
+CREATE POLICY "Shop owners can insert shops." ON public.shops FOR INSERT WITH CHECK (auth.uid() = owner_id);
+CREATE POLICY "Shop owners can update own shops." ON public.shops FOR UPDATE USING (auth.uid() = owner_id);
+CREATE POLICY "Shop owners can delete own shops." ON public.shops FOR DELETE USING (auth.uid() = owner_id);
+
+-- ── PRODUCTS POLICIES ────────────────────────────────────────────────────────
 CREATE POLICY "Public products are viewable by everyone." ON public.products FOR SELECT USING (true);
+CREATE POLICY "Shop owners can insert products." ON public.products FOR INSERT WITH CHECK (
+  auth.uid() IN (SELECT owner_id FROM public.shops WHERE id = shop_id)
+);
+CREATE POLICY "Shop owners can update own products." ON public.products FOR UPDATE USING (
+  auth.uid() IN (SELECT owner_id FROM public.shops WHERE id = shop_id)
+);
+CREATE POLICY "Shop owners can delete own products." ON public.products FOR DELETE USING (
+  auth.uid() IN (SELECT owner_id FROM public.shops WHERE id = shop_id)
+);
+
+-- ── REVIEWS POLICIES ─────────────────────────────────────────────────────────
 CREATE POLICY "Public reviews are viewable by everyone." ON public.reviews FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own reviews." ON public.reviews FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own reviews." ON public.reviews FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own reviews." ON public.reviews FOR DELETE USING (auth.uid() = user_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PostGIS RPC: get_nearby_shops
@@ -111,5 +139,6 @@ RETURNS TABLE (
           radius_metres
         )
     AND (product_filter IS NULL OR p.name ILIKE '%' || product_filter || '%')
-  ORDER BY distance_metres ASC;
+  ORDER BY distance_metres ASC
+  LIMIT 50;
 $$;

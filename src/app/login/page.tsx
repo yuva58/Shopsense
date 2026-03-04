@@ -80,6 +80,7 @@ export default function LoginPage() {
                         <div>
                             <input
                                 type="email"
+                                aria-label="Email address"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 placeholder="Email address"
@@ -91,6 +92,7 @@ export default function LoginPage() {
                         <div>
                             <input
                                 type="password"
+                                aria-label="Password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="Password"
@@ -99,11 +101,7 @@ export default function LoginPage() {
                             />
                         </div>
 
-                        {/* Dummy Role Selector for Visual Match (Roles are fetched post-login in our app, so this is just UI mimicking the design file) */}
-                        <div className="flex gap-2 pt-2">
-                            <button type="button" className="flex-1 h-12 bg-primary text-white rounded-xl text-sm font-medium">Customer</button>
-                            <button type="button" className="flex-1 h-12 bg-[#F8FAF7] border border-[#DCE3D8] text-heading rounded-xl text-sm font-medium">Shop Owner</button>
-                        </div>
+
 
                         <button
                             type="submit"
