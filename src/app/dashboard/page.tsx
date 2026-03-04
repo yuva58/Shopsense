@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+
+export const dynamic = 'force-dynamic'
 import { MapPin, Search, TrendingDown, Star, Route, Store, LogOut, Settings, Plus, LayoutDashboard } from 'lucide-react'
 
 export default async function DashboardPage() {
@@ -43,9 +45,9 @@ export default async function DashboardPage() {
                                 Search & Compare
                             </Link>
                             {isShopOwner && (
-                                <Link href="/dashboard/shop/new" className="flex items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/5 hover:text-white font-medium transition-colors mt-4">
+                                <Link href="/dashboard/shop" className="flex items-center gap-3 px-4 py-3 rounded-xl text-white/60 hover:bg-white/5 hover:text-white font-medium transition-colors mt-4">
                                     <Store className="w-5 h-5 text-blue-300" />
-                                    Manage Shop
+                                    Manage Shops
                                 </Link>
                             )}
                             {isAdmin && (
@@ -89,16 +91,24 @@ export default async function DashboardPage() {
                     </header>
 
                     {/* Quick Search Bar */}
-                    <div className="relative mb-8">
+                    <form action="/dashboard/search" method="GET" className="relative mb-8">
                         <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
                             <Search className="h-5 w-5 text-[#677069]" />
                         </div>
                         <input
                             type="text"
-                            className="w-full h-14 pl-14 pr-4 bg-white border border-[#DDE4DA] rounded-[14px] text-[#151614] outline-none hover:border-[#102417]/20 focus:border-primary focus:ring-1 focus:ring-primary shadow-sm transition-all text-base placeholder:text-[#677069]"
+                            name="q"
+                            className="w-full h-14 pl-14 pr-36 bg-white border border-[#DDE4DA] rounded-[14px] text-[#151614] outline-none hover:border-[#102417]/20 focus:border-primary focus:ring-1 focus:ring-primary shadow-sm transition-all text-base placeholder:text-[#677069]"
                             placeholder="Search any product..."
+                            autoComplete="off"
                         />
-                    </div>
+                        <button
+                            type="submit"
+                            className="absolute inset-y-2 right-2 px-5 bg-primary text-white rounded-[10px] font-semibold text-sm hover:bg-primary/90 transition-colors"
+                        >
+                            Search
+                        </button>
+                    </form>
 
                     {/* Quick Stats Grid */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -138,8 +148,8 @@ export default async function DashboardPage() {
                                     <h3 className="text-xl font-bold mb-2">Shop Owner Hub</h3>
                                     <p className="text-[#677069] text-sm mb-6 max-w-[80%]">Register your business, verify prices, and track how many route additions your store receives.</p>
                                 </div>
-                                <Link href="/dashboard/shop/new" className="inline-flex h-11 px-6 items-center justify-center bg-primary text-white font-semibold text-sm rounded-xl hover:bg-primary/90 transition-colors self-start w-fit">
-                                    Add your shop
+                                <Link href="/dashboard/shop" className="inline-flex h-11 px-6 items-center justify-center bg-primary text-white font-semibold text-sm rounded-xl hover:bg-primary/90 transition-colors self-start w-fit">
+                                    Open shop hub
                                 </Link>
                             </div>
                         )}
