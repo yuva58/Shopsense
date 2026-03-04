@@ -1,26 +1,56 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #FCFBF8;
+    --foreground: #151614;
+
+    --primary: #3D8A5A;
+    --primary-foreground: #FFFFFF;
+
+    --brand-dark: #102417;
+    --brand-dark-accent: #123324;
+
+    --surface: #FFFFFF;
+    --surface-glass: #FFFFFFCC;
+    --surface-glass-heavy: #FFFFFFE6;
+    --surface-subtle: #F8FAF6;
+
+    --border: #E4E8E0;
+    --border-dark: #DDE4DA;
+
+    --text-heading: #151614;
+    --text-body: #5F625D;
+    --text-muted: #677069;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased selection:bg-primary/20 selection:text-primary;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .glass-panel {
+    @apply bg-[var(--surface-glass)] backdrop-blur-md border border-[var(--border)];
+  }
+
+  .glass-panel-heavy {
+    @apply bg-[var(--surface-glass-heavy)] backdrop-blur-xl border border-[var(--border)];
+  }
+
+  .gradient-hero-bg {
+    @apply bg-gradient-to-br from-[#FCFBF8] to-[#EEF6EE];
+  }
+
+  .gradient-dark-panel {
+    @apply bg-gradient-to-br from-[#2E5A42] to-[#173225];
+  }
+
+  .gradient-login-promo {
+    @apply bg-gradient-to-br from-[#163527] to-[#254D39];
+  }
 }
