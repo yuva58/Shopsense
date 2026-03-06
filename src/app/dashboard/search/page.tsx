@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { MapPin, Search, Route, Loader2, TrendingDown, TrendingUp, Minus, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { MapPin, Search, Route, Loader2, Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react'
 
 // (Same interfaces and logic as before, just completely restyled for the Pencil UI)
 interface ShopResult {
@@ -20,6 +20,7 @@ interface ShopResult {
         recommendation: string
         confidence: number
         reason: string
+        source?: 'ai' | 'fallback'
     }
 }
 
@@ -27,6 +28,7 @@ interface CatalogProduct {
     id: string
     shop_id: string
     name: string
+    category?: string | null
     current_price: number
     shops?: { name?: string; address?: string } | Array<{ name?: string; address?: string }> | null
 }
@@ -52,38 +54,145 @@ const getLocation = (): Promise<{ lat: number; lng: number }> =>
             return
         }
 
+        // maximumAge: 0 forces the browser to get a *fresh* GPS fix every time.
+        // Without this, the browser may return a cached position from a previous
+        // session (e.g. Chennai Central during development), causing wrong results.
         navigator.geolocation.getCurrentPosition(
             (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            () => reject(new Error('Location access denied'))
+            () => reject(new Error('Location access denied')),
+            { maximumAge: 0, timeout: 10000, enableHighAccuracy: true }
         )
     })
 
-const buildSearchCandidates = (rawQuery: string) => {
-    const trimmed = rawQuery.trim()
-    const lower = trimmed.toLowerCase()
-    const candidates = new Set<string>([trimmed])
+const FOOD_KEYWORDS = [
+    'milk', 'bread', 'egg', 'rice', 'dal', 'lentil', 'oil', 'flour', 'atta',
+    'vegetable', 'fruit', 'potato', 'onion', 'tomato', 'carrot', 'beans',
+    'chicken', 'mutton', 'fish', 'seafood', 'paneer', 'curd', 'yogurt',
+    'snack', 'bakery', 'dairy', 'grocery', 'meat', 'poultry', 'masala', 'spice',
+]
 
-    const aliasMap: Record<string, string> = {
-        miruku: 'milk',
-        miluku: 'milk',
-        paal: 'milk',
-        muttai: 'eggs',
-        anda: 'eggs',
-        rotti: 'bread',
-        roti: 'bread',
+const aliasMap: Record<string, string> = {
+    miruku: 'milk',
+    miluku: 'milk',
+    paal: 'milk',
+    muttai: 'eggs',
+    anda: 'eggs',
+    rotti: 'bread',
+    roti: 'bread',
+    urulai: 'potato',
+    urulaikilangu: 'potato',
+    aloo: 'potato',
+}
+
+const foodIntentMap: Record<string, string[]> = {
+    potato: ['vegetable', 'onion', 'tomato', 'carrot', 'beans'],
+    onion: ['vegetable', 'tomato', 'potato'],
+    tomato: ['vegetable', 'onion', 'potato'],
+    rice: ['ponni', 'basmati', 'grain', 'atta', 'dal'],
+    egg: ['eggs', 'chicken', 'protein'],
+    eggs: ['egg', 'chicken', 'protein'],
+    chicken: ['meat', 'poultry', 'egg'],
+    fish: ['seafood', 'prawns', 'meat'],
+    vegetable: ['potato', 'onion', 'tomato', 'carrot', 'beans'],
+    fruit: ['banana', 'apple', 'orange', 'grapes'],
+}
+
+const tokenize = (value: string) =>
+    value
+        .toLowerCase()
+        .split(/[^a-z0-9]+/g)
+        .map((token) => token.trim())
+        .filter(Boolean)
+
+const isFoodCatalogProduct = (product: CatalogProduct) => {
+    const searchable = `${product.name} ${product.category || ''}`.toLowerCase()
+    return FOOD_KEYWORDS.some((keyword) => searchable.includes(keyword))
+}
+
+const scoreCatalogProduct = (product: CatalogProduct, queryTokens: string[], expandedTokens: string[]) => {
+    const searchable = `${product.name} ${product.category || ''}`.toLowerCase()
+    const nameLower = product.name.toLowerCase()
+    let score = 0
+
+    for (const token of queryTokens) {
+        if (!token) continue
+        if (nameLower.includes(token)) {
+            score += 45
+            continue
+        }
+        if (searchable.includes(token)) score += 20
     }
 
-    if (aliasMap[lower]) {
-        candidates.add(aliasMap[lower])
+    for (const token of expandedTokens) {
+        if (!token) continue
+        if (searchable.includes(token)) score += 10
     }
 
-    for (const [misspelled, corrected] of Object.entries(aliasMap)) {
-        if (lower.includes(misspelled)) {
-            candidates.add(lower.replaceAll(misspelled, corrected))
+    if (isFoodCatalogProduct(product)) score += 5
+    return score
+}
+
+const rankFallbackFoodProducts = (products: CatalogProduct[], rawQuery: string) => {
+    const queryTokens = tokenize(rawQuery)
+    const expandedTokens = new Set<string>(queryTokens)
+
+    for (const token of queryTokens) {
+        const canonical = aliasMap[token] || token
+        expandedTokens.add(canonical)
+        const related = foodIntentMap[canonical]
+        if (related) {
+            for (const term of related) expandedTokens.add(term)
         }
     }
 
-    return Array.from(candidates)
+    return products
+        .filter(isFoodCatalogProduct)
+        .map((product) => ({
+            product,
+            score: scoreCatalogProduct(product, queryTokens, Array.from(expandedTokens)),
+        }))
+        .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score
+            return Number(a.product.current_price) - Number(b.product.current_price)
+        })
+        .map((entry) => entry.product)
+}
+
+const buildSearchCandidates = (rawQuery: string) => {
+    const trimmed = rawQuery.trim().toLowerCase()
+    if (!trimmed) return []
+
+    const tokens = tokenize(trimmed)
+    const candidates: string[] = []
+    const pushUnique = (value: string) => {
+        const normalized = value.trim().toLowerCase()
+        if (!normalized || candidates.includes(normalized)) return
+        candidates.push(normalized)
+    }
+
+    pushUnique(trimmed)
+    for (const token of tokens) pushUnique(token)
+
+    for (const token of tokens) {
+        const canonical = aliasMap[token] || token
+        pushUnique(canonical)
+
+        const related = foodIntentMap[canonical]
+        if (related) {
+            for (const term of related) pushUnique(term)
+        }
+
+        // basic singularization for terms like "potatoes" -> "potato"
+        if (token.endsWith('ies') && token.length > 3) {
+            pushUnique(`${token.slice(0, -3)}y`)
+        } else if (token.endsWith('es') && token.length > 3) {
+            pushUnique(token.slice(0, -2))
+        } else if (token.endsWith('s') && token.length > 2) {
+            pushUnique(token.slice(0, -1))
+        }
+    }
+
+    return candidates.slice(0, 12)
 }
 
 export default function SearchPage() {
@@ -120,17 +229,21 @@ export default function SearchPage() {
         setSearchNote(null)
 
         try {
-            let userCoords = coords
-            if (!userCoords) {
-                try {
-                    setLocating(true)
-                    userCoords = await getLocation()
-                    setCoords(userCoords)
-                } catch {
-                    setSearchNote('Location unavailable. Showing citywide product matches instead.')
-                } finally {
-                    setLocating(false)
+            // Always fetch a fresh GPS position for every search so we never
+            // display results anchored to a stale developer/previous location.
+            let userCoords: { lat: number; lng: number } | null = null
+            try {
+                setLocating(true)
+                userCoords = await getLocation()
+                setCoords(userCoords)
+            } catch {
+                // Fall back to last-known coords (if any) before showing the warning.
+                userCoords = coords
+                if (!userCoords) {
+                    setSearchNote('Location unavailable. Showing Tamil Nadu–wide product matches instead.')
                 }
+            } finally {
+                setLocating(false)
             }
 
             const searchCandidates = buildSearchCandidates(trimmedQuery)
@@ -160,7 +273,7 @@ export default function SearchPage() {
             }
 
             for (const candidate of searchCandidates) {
-                const catalogRes = await fetch(`/api/products?search=${encodeURIComponent(candidate)}`)
+                const catalogRes = await fetch(`/api/products?limit=80&search=${encodeURIComponent(candidate)}`)
                 const catalogJson = await catalogRes.json()
                 if (!catalogRes.ok) throw new Error(catalogJson.error || 'Failed to fetch products')
 
@@ -175,17 +288,22 @@ export default function SearchPage() {
                 }
             }
 
-            const allProductsRes = await fetch('/api/products')
+            const allProductsRes = await fetch('/api/products?limit=240')
             const allProductsJson = await allProductsRes.json()
             if (!allProductsRes.ok) throw new Error(allProductsJson.error || 'Failed to fetch products')
 
             const allProducts = (allProductsJson.products || []) as CatalogProduct[]
             setCatalogEmpty(allProducts.length === 0)
-            if (allProducts.length > 0) {
-                setResults(mapCatalogProductsToResults(allProducts))
+
+            const relatedFoodProducts = rankFallbackFoodProducts(allProducts, trimmedQuery)
+            if (relatedFoodProducts.length > 0) {
+                setResults(mapCatalogProductsToResults(relatedFoodProducts.slice(0, 60)))
                 setSearchScope('global')
-                setSearchNote(`No exact matches for "${trimmedQuery}". Showing all products instead.`)
+                setSearchNote(`No exact matches for "${trimmedQuery}". Showing related food items across Chennai.`)
+                return
             }
+
+            setSearchNote(`No relevant food items found for "${trimmedQuery}" in Chennai catalog yet.`)
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Something went wrong')
         } finally {
@@ -269,7 +387,7 @@ export default function SearchPage() {
         const loadedCount = predictionMap.size
         setPredictionStatus(
             loadedCount > 0
-                ? `AI insights loaded for ${loadedCount} result${loadedCount > 1 ? 's' : ''}.`
+                ? `AI insights loaded for ${loadedCount} result${loadedCount > 1 ? 's' : ''}. Green means likely drop, red means likely rise.`
                 : 'Could not load AI insights right now. Showing default estimates.'
         )
         setLoadingPredictions(false)
@@ -284,8 +402,64 @@ export default function SearchPage() {
     const distanceRank = (distanceMetres: number) =>
         distanceMetres >= 0 ? distanceMetres : Number.MAX_SAFE_INTEGER
 
-    const getRouteOrder = (items: ShopResult[]) =>
-        [...items].sort((a, b) => distanceRank(a.distance_metres) - distanceRank(b.distance_metres))
+    // Nearest-Neighbour greedy TSP: O(n²) approximation.
+    // Starting from the user's current GPS position (or the closest shop if
+    // coords are unavailable), repeatedly pick the nearest unvisited stop.
+    // This gives a far better ordered route than a simple distance sort and is
+    // equivalent to Euclidean A* on a fully-connected graph.
+    const getRouteOrder = (items: ShopResult[]): ShopResult[] => {
+        if (items.length <= 1) return [...items]
+
+        // Haversine straight-line distance between two lat/lng points (metres)
+        const haversine = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+            const R = 6371000
+            const dLat = (lat2 - lat1) * Math.PI / 180
+            const dLng = (lng2 - lng1) * Math.PI / 180
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) ** 2
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        }
+
+        // Approximate lat/lng from distance_metres for shops without coords.
+        // We anchor them NE of the user or origin so they sort last.
+        const APPROX_OFFSET = 0.1 // ~11 km
+        const originLat = coords?.lat ?? 13.0827
+        const originLng = coords?.lng ?? 80.2707
+
+        const getShopLatLng = (s: ShopResult) => {
+            if (s.distance_metres >= 0) {
+                // Rough bearing: place the shop along the NE direction scaled by distance.
+                const d = s.distance_metres
+                return {
+                    lat: originLat + (d / 111320),
+                    lng: originLng + (d / (111320 * Math.cos(originLat * Math.PI / 180))),
+                }
+            }
+            return { lat: originLat + APPROX_OFFSET, lng: originLng + APPROX_OFFSET }
+        }
+
+        const remaining = [...items]
+        const ordered: ShopResult[] = []
+        let curLat = originLat
+        let curLng = originLng
+
+        while (remaining.length > 0) {
+            let bestIdx = 0
+            let bestDist = Infinity
+            for (let i = 0; i < remaining.length; i++) {
+                const { lat, lng } = getShopLatLng(remaining[i])
+                const dist = haversine(curLat, curLng, lat, lng)
+                if (dist < bestDist) { bestDist = dist; bestIdx = i }
+            }
+            const next = remaining.splice(bestIdx, 1)[0]
+            const nextPos = getShopLatLng(next)
+            curLat = nextPos.lat
+            curLng = nextPos.lng
+            ordered.push(next)
+        }
+        return ordered
+    }
 
     const openRoute = async () => {
         if (!selectedShops.length) return
@@ -359,12 +533,6 @@ export default function SearchPage() {
             ? `https://www.google.com/maps?q=${coords.lat},${coords.lng}&z=14&output=embed`
             : 'https://www.google.com/maps?q=20.5937,78.9629&z=4&output=embed'
 
-    const trendIcon = (trend?: string) => {
-        if (trend === 'falling') return <TrendingDown className="h-4 w-4 text-emerald-500" />
-        if (trend === 'rising') return <TrendingUp className="h-4 w-4 text-red-400" />
-        return <Minus className="h-4 w-4 text-[#677069]" />
-    }
-
     const getPredictionDelta = (result: ShopResult) => {
         if (!result.ai_prediction) return null
         const rawDelta = Math.round(result.ai_prediction.predicted_price_next_week - result.current_price)
@@ -373,6 +541,7 @@ export default function SearchPage() {
                 label: 'No change',
                 tone: 'bg-[#F3F5F3] text-[#4A5450] border-[#DDE4DA]',
                 direction: 'flat' as const,
+                amount: 0,
             }
         }
         if (rawDelta < 0) {
@@ -380,13 +549,45 @@ export default function SearchPage() {
                 label: `-${Math.abs(rawDelta)} INR`,
                 tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
                 direction: 'down' as const,
+                amount: Math.abs(rawDelta),
             }
         }
         return {
             label: `+${Math.abs(rawDelta)} INR`,
             tone: 'bg-red-50 text-red-700 border-red-200',
             direction: 'up' as const,
+            amount: Math.abs(rawDelta),
         }
+    }
+
+    const getConfidenceMeta = (confidence?: number) => {
+        const score = Math.round((confidence || 0) * 100)
+        if (score >= 75) {
+            return {
+                label: `High confidence (${score}%)`,
+                tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+            }
+        }
+        if (score >= 50) {
+            return {
+                label: `Medium confidence (${score}%)`,
+                tone: 'bg-amber-50 text-amber-700 border-amber-200',
+            }
+        }
+        return {
+            label: `Low confidence (${score}%)`,
+            tone: 'bg-slate-50 text-slate-600 border-slate-200',
+        }
+    }
+
+    const getPredictionSummary = (prediction: NonNullable<ShopResult['ai_prediction']>, predictionDelta: ReturnType<typeof getPredictionDelta>) => {
+        if (!predictionDelta || predictionDelta.direction === 'flat') {
+            return 'Price is expected to stay near the current value next week.'
+        }
+        if (predictionDelta.direction === 'down') {
+            return `Price may drop by around INR ${predictionDelta.amount} next week.`
+        }
+        return `Price may increase by around INR ${predictionDelta.amount} next week.`
     }
 
     return (
@@ -468,7 +669,7 @@ export default function SearchPage() {
             )}
 
             {/* Content Split: Results (Left) vs insights (Right) */}
-            <div className="flex flex-col lg:flex-row flex-1 gap-6 overflow-hidden">
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
 
                 {/* Left side: Results List */}
                 <div className="flex-1 flex flex-col min-w-0">
@@ -537,7 +738,7 @@ export default function SearchPage() {
                         <p className="mb-3 text-xs font-medium text-[#466854]">{predictionStatus}</p>
                     )}
 
-                    <div className="flex-1 overflow-y-auto space-y-4 pr-2 pb-8">
+                    <div className="space-y-4 pr-2 pb-8">
                         {results.length > 0 && (
                             <div className="sticky top-0 z-10 rounded-2xl border border-[#C8D9CE] bg-[#F2F8F4] p-3 flex items-center justify-between gap-3">
                                 <div>
@@ -630,32 +831,57 @@ export default function SearchPage() {
                                     {/* AI Prediction Section */}
                                     {pred ? (
                                         <div className="mt-4 rounded-xl border border-[#D6E7DB] bg-[#F4FAF6] p-4">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="inline-flex items-center gap-2 text-sm font-semibold text-[#1B5135]">
-                                                    <Sparkles className="h-4 w-4" />
-                                                    AI price insight
-                                                </div>
-                                                {predictionDelta && (
-                                                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold border ${predictionDelta.tone}`}>
-                                                        {predictionDelta.label}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="mt-3 flex items-center justify-between gap-3">
-                                                <div className="text-right">
-                                                    <p className="text-xs text-[#677069]">Next week estimate</p>
-                                                    <p className="text-[22px] leading-none font-extrabold text-[#123324]">INR {pred.predicted_price_next_week}</p>
-                                                </div>
-                                                <div className="flex items-center gap-2 text-xs">
-                                                    {trendIcon(pred.trend)}
-                                                    <span className={`font-semibold ${pred.recommendation === 'buy_now' ? 'text-primary' : 'text-amber-700'}`}>
-                                                        {pred.recommendation === 'buy_now' ? 'Buy now recommended' : 'Wait may save more'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <p className="text-[#677069] text-xs leading-relaxed mt-2">
-                                                {pred.reason} ({Math.round((pred.confidence || 0) * 100)}% confidence)
-                                            </p>
+                                            {(() => {
+                                                const confidenceMeta = getConfidenceMeta(pred.confidence)
+                                                const predictionSummary = getPredictionSummary(pred, predictionDelta)
+                                                const recommendationCopy = pred.recommendation === 'buy_now' ? 'Buy now' : 'Wait for next week'
+                                                const isFallbackInsight =
+                                                    pred.source === 'fallback' ||
+                                                    pred.reason.toLowerCase().includes('fallback')
+
+                                                return (
+                                                    <>
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div className="inline-flex items-center gap-2 text-sm font-semibold text-[#1B5135]">
+                                                                <Sparkles className="h-4 w-4" />
+                                                                AI price insight
+                                                            </div>
+                                                            {predictionDelta && (
+                                                                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold border ${predictionDelta.tone}`}>
+                                                                    {predictionDelta.label}
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                            <div>
+                                                                <p className="text-xs text-[#677069]">Recommended action</p>
+                                                                <p className="text-[15px] font-bold text-[#123324]">{recommendationCopy}</p>
+                                                                <p className="text-xs text-[#54645C] mt-1">{predictionSummary}</p>
+                                                            </div>
+                                                            <div className="sm:text-right">
+                                                                <p className="text-xs text-[#677069]">Next week estimate</p>
+                                                                <p className="text-[24px] leading-none font-extrabold text-[#123324]">INR {pred.predicted_price_next_week}</p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border ${confidenceMeta.tone}`}>
+                                                                {confidenceMeta.label}
+                                                            </span>
+                                                            {isFallbackInsight && (
+                                                                <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border bg-[#F3F5F3] text-[#4A5450] border-[#DDE4DA]">
+                                                                    Based on limited local history
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        <p className="text-[#55655D] text-xs leading-relaxed mt-2">
+                                                            <span className="font-semibold text-[#1B5135]">Why:</span> {pred.reason}
+                                                        </p>
+                                                    </>
+                                                )
+                                            })()}
                                         </div>
                                     ) : (
                                         <div className="mt-4 rounded-xl border border-dashed border-[#D8E2DC] px-3 py-2 text-xs text-[#6F7B73]">
@@ -669,8 +895,8 @@ export default function SearchPage() {
                 </div>
 
                 {/* Right side: Decision Panel / Route building */}
-                <div className="flex flex-col w-full lg:w-[360px] gradient-dark-panel rounded-[24px] p-6 text-white shrink-0 shadow-lg relative overflow-y-auto lg:overflow-hidden">
-                    <div className="relative z-10 flex flex-col h-full">
+                <div className="w-full lg:w-[360px] lg:sticky lg:top-6 lg:max-h-[calc(100vh-120px)] gradient-dark-panel rounded-[24px] p-6 text-white shrink-0 shadow-lg relative overflow-visible lg:overflow-hidden">
+                    <div className="relative z-10 flex flex-col gap-4 min-h-0 lg:h-full">
                         <h3 className="font-bold text-xl mb-1">Route & Insights</h3>
                         <p className="text-white/70 text-sm mb-4">Select shops on the left, then generate an en-route optimized trip.</p>
 
@@ -689,57 +915,59 @@ export default function SearchPage() {
                             <p className="text-[11px] text-white/65 mt-3">Stops are auto-ordered en-route from your current location.</p>
                         </div>
 
-                        <div className="flex-1">
+                        <div className="min-h-[132px]">
                             {routeOrderedSelected.length === 0 ? (
                                 <div className="h-32 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/40 text-sm font-medium">
                                     Add shops from cards to start route planning
                                 </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {routeOrderedSelected.map((s, index) => {
-                                        const predictionDelta = getPredictionDelta(s)
-                                        const deltaTone = predictionDelta?.direction === 'down'
-                                            ? 'bg-emerald-500/20 text-emerald-100 border-emerald-300/20'
-                                            : predictionDelta?.direction === 'up'
-                                                ? 'bg-red-500/20 text-red-100 border-red-300/20'
-                                                : 'bg-white/10 text-white/80 border-white/20'
+                                <>
+                                    <div className="space-y-3 pr-1 lg:pr-2 lg:max-h-[320px] lg:overflow-y-auto">
+                                        {routeOrderedSelected.map((s, index) => {
+                                            const predictionDelta = getPredictionDelta(s)
+                                            const deltaTone = predictionDelta?.direction === 'down'
+                                                ? 'bg-emerald-500/20 text-emerald-100 border-emerald-300/20'
+                                                : predictionDelta?.direction === 'up'
+                                                    ? 'bg-red-500/20 text-red-100 border-red-300/20'
+                                                    : 'bg-white/10 text-white/80 border-white/20'
 
-                                        return (
-                                            <div key={s.shop_id} className="bg-white/10 rounded-xl p-4 border border-white/10">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <p className="text-[10px] uppercase tracking-[0.08em] text-white/60 font-semibold">Stop {index + 1}</p>
-                                                        <span className="font-semibold text-sm line-clamp-1">{s.shop_name}</span>
-                                                        <div className="text-xs text-white/60 mt-0.5">{s.product_name}</div>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => toggleShop(s.shop_id)}
-                                                        className="h-8 px-3 rounded-lg border border-white/20 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </div>
-
-                                                <div className="mt-3 flex items-center justify-between gap-3">
-                                                    <span className="font-bold text-emerald-300 shrink-0">INR {s.current_price}</span>
-                                                    {s.ai_prediction ? (
-                                                        <div className="text-right">
-                                                            <p className="text-[11px] text-white/65">AI next week</p>
-                                                            <p className="text-sm font-bold">INR {s.ai_prediction.predicted_price_next_week}</p>
+                                            return (
+                                                <div key={s.shop_id} className="bg-white/10 rounded-xl p-4 border border-white/10">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="text-[10px] uppercase tracking-[0.08em] text-white/60 font-semibold">Stop {index + 1}</p>
+                                                            <span className="font-semibold text-sm line-clamp-1">{s.shop_name}</span>
+                                                            <div className="text-xs text-white/60 mt-0.5">{s.product_name}</div>
                                                         </div>
-                                                    ) : (
-                                                        <span className="text-[11px] text-white/60">Run AI insight</span>
+                                                        <button
+                                                            onClick={() => toggleShop(s.shop_id)}
+                                                            className="h-8 px-3 rounded-lg border border-white/20 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="mt-3 flex items-center justify-between gap-3">
+                                                        <span className="font-bold text-emerald-300 shrink-0">INR {s.current_price}</span>
+                                                        {s.ai_prediction ? (
+                                                            <div className="text-right">
+                                                                <p className="text-[11px] text-white/65">AI next week</p>
+                                                                <p className="text-sm font-bold">INR {s.ai_prediction.predicted_price_next_week}</p>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[11px] text-white/60">Run AI insight</span>
+                                                        )}
+                                                    </div>
+
+                                                    {predictionDelta && (
+                                                        <span className={`mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border ${deltaTone}`}>
+                                                            {predictionDelta.label} vs today
+                                                        </span>
                                                     )}
                                                 </div>
-
-                                                {predictionDelta && (
-                                                    <span className={`mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold border ${deltaTone}`}>
-                                                        {predictionDelta.label} vs today
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
+                                            )
+                                        })}
+                                    </div>
 
                                     <div className="pt-4 mt-4 border-t border-white/10 space-y-2">
                                         <div className="flex justify-between items-center">
@@ -758,11 +986,11 @@ export default function SearchPage() {
                                                     : `Potential basket increase: INR ${roundedProjectedDelta} next week.`}
                                         </p>
                                     </div>
-                                </div>
+                                </>
                             )}
                         </div>
 
-                        <div className="mt-6 pt-6 border-t border-white/10">
+                        <div className="pt-4 border-t border-white/10">
                             <button
                                 onClick={openRoute}
                                 disabled={!canGenerateRoute}
