@@ -41,5 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 # local review artifacts
-WhatsApp Audio *.ogg
+*WhatsApp*Audio*
+*.ogg
 client_review_transcript*.txt

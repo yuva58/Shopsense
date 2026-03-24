@@ -23,8 +23,7 @@ const roundInr = (value: number) => Math.max(1, Math.round(value))
 
 function buildFallbackPrediction(
     currentPrice: number,
-    history: Array<{ price: number; recorded_at: string }>,
-    reasonPrefix: string
+    history: Array<{ price: number; recorded_at: string }>
 ): PricePrediction {
     let trend: Trend = 'stable'
     let nextWeek = currentPrice
@@ -43,15 +42,27 @@ function buildFallbackPrediction(
     const confidence = history.length >= 10 ? 0.68 : history.length >= 4 ? 0.52 : 0.35
     const context =
         history.length < 2
-            ? 'Using current known price because historical points are limited.'
-            : 'Estimated using recent local trend from available history.'
+            ? 'Only a small amount of Chennai price history is available right now.'
+            : 'This estimate comes from recent local price movements.'
+
+    const trendSummary =
+        trend === 'falling'
+            ? 'Prices have been trending down recently.'
+            : trend === 'rising'
+                ? 'Prices have been trending up recently.'
+                : 'Prices have been mostly stable recently.'
+
+    const actionSummary =
+        recommendation === 'buy_now'
+            ? 'Buying now is likely the safer option.'
+            : 'Waiting for a few days may help you save.'
 
     return {
         trend,
         predicted_price_next_week: roundInr(nextWeek),
         recommendation,
         confidence,
-        reason: `${reasonPrefix} ${context}`,
+        reason: `${trendSummary} ${actionSummary} ${context}`,
         source: 'fallback',
     }
 }
@@ -128,7 +139,7 @@ export async function POST(request: NextRequest) {
             .limit(90)
 
         if (histError) {
-            const fallback = buildFallbackPrediction(currentPrice, [], 'AI fallback active.')
+            const fallback = buildFallbackPrediction(currentPrice, [])
             return NextResponse.json({
                 prediction: fallback,
                 history_points: 0,
@@ -143,14 +154,14 @@ export async function POST(request: NextRequest) {
             }))
             .filter((row) => Number.isFinite(row.price))
 
-        const fallback = buildFallbackPrediction(currentPrice, history, 'AI fallback active.')
+        const fallback = buildFallbackPrediction(currentPrice, history)
 
-        if (history.length < 2) {
+        if (history.length < 1) {
             return NextResponse.json({
                 prediction: fallback,
                 history_points: history.length,
                 fallback: true,
-                message: 'Not enough price history for model inference; using fallback trend.',
+                message: 'No price history available for model inference; using fallback trend.',
             })
         }
 
@@ -190,7 +201,7 @@ export async function POST(request: NextRequest) {
   "predicted_price_next_week": <number in INR>,
   "recommendation": "buy_now" | "wait",
   "confidence": <0.0-1.0>,
-  "reason": "<max 2 short sentences>"
+  "reason": "<max 2 short sentences, plain language for everyday shoppers>"
 }`,
                         },
                         {
@@ -232,4 +243,3 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Malformed request JSON' }, { status: 400 })
     }
 }
-

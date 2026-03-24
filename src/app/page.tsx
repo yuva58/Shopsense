@@ -51,18 +51,27 @@ export default function LandingPage() {
           </div>
 
           <div className="mt-12 space-y-8">
-            {/* Search Mockup Area */}
-            <div className="bg-[#F8FAF6] border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3">
+            {/* Search Area */}
+            <form action="/dashboard/search" method="GET" className="bg-[#F8FAF6] border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3">
               <div className="flex-1 flex gap-3">
-                <input type="text" aria-label="Search product" placeholder="Search product e.g., milk, bread..." className="flex-1 h-12 bg-white rounded-lg px-4 border border-border text-sm outline-none focus:border-primary" />
+                <input
+                  type="text"
+                  name="q"
+                  aria-label="Search product"
+                  placeholder="Search product e.g., milk, bread..."
+                  className="flex-1 h-12 bg-white rounded-lg px-4 border border-border text-sm outline-none focus:border-primary"
+                />
                 <div className="w-32 h-12 bg-white rounded-lg px-4 border border-border flex items-center text-sm text-body">
                   Radius: 5 km
                 </div>
               </div>
-              <Link href="/dashboard" className="h-12 px-6 flex items-center justify-center rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors">
+              <button
+                type="submit"
+                className="h-12 px-6 flex items-center justify-center rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors"
+              >
                 Find best options
-              </Link>
-            </div>
+              </button>
+            </form>
 
             <div className="flex gap-3">
               <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#E5F3EB] text-[#2E7047]">Nearby availability</span>
@@ -91,14 +100,25 @@ export default function LandingPage() {
         {/* Right Visual Card */}
         <section className="flex-1 lg:max-w-[480px] bg-brand-dark rounded-[24px] p-5 flex flex-col gap-4">
 
-          {/* Map Area Mockup */}
-          <div className="flex-1 min-h-[300px] gradient-dark-panel rounded-[18px] p-5 flex flex-col justify-end border border-white/5">
-            <div className="mb-2">
-              <span className="text-white font-semibold text-lg">Route AI: 11 min faster than default map path</span>
-            </div>
-            <div className="flex gap-2">
-              <span className="bg-white/10 text-white/90 text-xs px-3 py-1 rounded-full border border-white/20">Stop 1: Aavin</span>
-              <span className="bg-[#4D4466] text-[#E8DDF2] text-xs px-3 py-1 rounded-full border border-[#6B5A81]">Stop 2: Local Mart</span>
+          {/* Map Area */}
+          <div className="relative flex-1 min-h-[300px] rounded-[18px] overflow-hidden border border-white/10">
+            <iframe
+              title="ShopSense neighborhood map"
+              src="https://www.google.com/maps?q=grocery+stores+in+chennai&z=13&output=embed"
+              loading="lazy"
+              className="absolute inset-0 h-full w-full pointer-events-none"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#0F2A1B]/25 via-[#173225]/55 to-[#0B2116]/88" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(123,177,146,0.28),transparent_40%)]" />
+
+            <div className="relative z-10 h-full p-5 flex flex-col justify-end">
+              <div className="mb-2">
+                <span className="text-white font-semibold text-lg">Route AI: 11 min faster than default map path</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="bg-white/10 text-white/90 text-xs px-3 py-1 rounded-full border border-white/20">Stop 1: Aavin</span>
+                <span className="bg-[#4D4466] text-[#E8DDF2] text-xs px-3 py-1 rounded-full border border-[#6B5A81]">Stop 2: Local Mart</span>
+              </div>
             </div>
           </div>
 
@@ -122,9 +142,9 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <button className="w-full h-10 bg-[#162D1F] text-white rounded-xl text-sm font-medium hover:bg-black transition-colors">
+            <Link href="/dashboard/search?q=milk" className="w-full h-10 bg-[#162D1F] text-white rounded-xl text-sm font-medium hover:bg-black transition-colors inline-flex items-center justify-center">
               Open live comparison
-            </button>
+            </Link>
           </div>
 
         </section>

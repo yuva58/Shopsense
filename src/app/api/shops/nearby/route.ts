@@ -6,20 +6,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const lat = parseFloat(searchParams.get('lat') || '')
     const lng = parseFloat(searchParams.get('lng') || '')
-    const radius = parseFloat(searchParams.get('radius') || '5000') // metres, default 5 km
-    const product = searchParams.get('product') || ''
+    const radius = parseFloat(searchParams.get('radius') || '5000') // metres
+    const product = (searchParams.get('product') || '').trim()
 
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
         return NextResponse.json({ error: 'Valid latitude and longitude are required within global bounds' }, { status: 400 })
     }
 
-    if (isNaN(radius) || radius < 0 || radius > 50000) {
-        return NextResponse.json({ error: 'Radius must be a positive number under 50000 metres' }, { status: 400 })
+    if (isNaN(radius) || radius < 0 || radius > 500000) {
+        return NextResponse.json({ error: 'Radius must be a positive number under 500000 metres' }, { status: 400 })
     }
 
     const supabase = await createClient()
 
-    // PostGIS ST_DWithin: returns shops within `radius` metres of (lng, lat)
+    // PostGIS ST_DWithin: returns in-stock products from shops within `radius` metres.
     // The function must be created in Supabase (see supabase_schema.sql for the RPC)
     const { data, error } = await supabase.rpc('get_nearby_shops', {
         user_lat: lat,
