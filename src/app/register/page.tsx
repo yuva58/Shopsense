@@ -8,6 +8,23 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { ShieldCheck, Tag } from 'lucide-react'
 
+const toAuthErrorMessage = (error: unknown) => {
+    if (!(error instanceof Error)) {
+        return 'Unable to create your account right now. Please try again later.'
+    }
+
+    const message = error.message.toLowerCase()
+    if (message.includes('supabase is not configured')) {
+        return 'Registration is currently unavailable: Supabase configuration is missing.'
+    }
+
+    if (message.includes('failed to fetch') || message.includes('fetch failed') || message.includes('enotfound')) {
+        return 'Unable to reach the authentication server. Please verify Supabase URL/keys and internet access.'
+    }
+
+    return error.message || 'Unable to create your account right now. Please try again later.'
+}
+
 export default function RegisterPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -94,8 +111,8 @@ export default function RegisterPage() {
 
             router.push('/dashboard')
             router.refresh()
-        } catch {
-            setError('A network error occurred. Please try again later.')
+        } catch (error) {
+            setError(toAuthErrorMessage(error))
         } finally {
             setLoading(false)
         }

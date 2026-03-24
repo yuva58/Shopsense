@@ -28,6 +28,23 @@ const toValidRole = (value: unknown): AppRole => {
     return 'customer'
 }
 
+const toAuthErrorMessage = (error: unknown) => {
+    if (!(error instanceof Error)) {
+        return 'Unable to sign in right now. Please try again.'
+    }
+
+    const message = error.message.toLowerCase()
+    if (message.includes('supabase is not configured')) {
+        return 'Sign-in is currently unavailable: Supabase configuration is missing.'
+    }
+
+    if (message.includes('failed to fetch') || message.includes('fetch failed') || message.includes('enotfound')) {
+        return 'Unable to reach the authentication server. Please verify Supabase URL/keys and internet access.'
+    }
+
+    return error.message || 'Unable to sign in right now. Please try again.'
+}
+
 export default function LoginPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -39,13 +56,16 @@ export default function LoginPage() {
         e.preventDefault()
         setLoading(true)
         setError(null)
-        const supabase = createClient()
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        setLoading(false)
 
-        if (error) {
-            setError(error.message)
-        } else {
+        try {
+            const supabase = createClient()
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+            if (error) {
+                setError(error.message)
+                return
+            }
+
             const user = data.user
             if (user) {
                 const metadata = user.user_metadata ?? {}
@@ -80,6 +100,10 @@ export default function LoginPage() {
 
             router.push('/dashboard')
             router.refresh()
+        } catch (error) {
+            setError(toAuthErrorMessage(error))
+        } finally {
+            setLoading(false)
         }
     }
 
