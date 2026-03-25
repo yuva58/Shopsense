@@ -41,6 +41,14 @@ yarn-error.log*
 next-env.d.ts
 
 # local review artifacts
+# local review artifacts
 *WhatsApp*Audio*
 *.ogg
 client_review_transcript*.txt
+
+# local tools, DB schema, and logs (not needed for Vercel)
+drawio-mcp/
+scripts/
+supabase_schema.sql
+.dev-server*
+npm_config.txt
