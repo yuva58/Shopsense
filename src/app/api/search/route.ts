@@ -358,7 +358,7 @@ async function queryProducts(supabase: Awaited<ReturnType<typeof createClient>>,
 
     const productsById = new Map<string, ProductRow>()
 
-    for (const pattern of searchPatterns) {
+    const promises = searchPatterns.map(async (pattern) => {
         const { data, error } = await supabase
             .from('products')
             .select('id, shop_id, name, category, current_price, shops(name, address)')
@@ -368,8 +368,12 @@ async function queryProducts(supabase: Awaited<ReturnType<typeof createClient>>,
         if (error) {
             throw new Error(error.message)
         }
+        return data as ProductRow[]
+    })
 
-        for (const row of (data || []) as ProductRow[]) {
+    const results = await Promise.all(promises)
+    for (const data of results) {
+        for (const row of (data || [])) {
             if (!row?.id) continue
             if (!productsById.has(row.id)) {
                 productsById.set(row.id, row)
@@ -419,19 +423,21 @@ export async function GET(request: NextRequest) {
         const resultsByKey = new Map<string, SearchResult>()
 
         if (hasCoords) {
-            for (const candidate of candidates) {
+            const geoPromises = candidates.map(async (candidate) => {
                 const { data, error } = await supabase.rpc('get_nearby_shops', {
                     user_lat: lat,
                     user_lng: lng,
                     radius_metres: DEFAULT_RADIUS_METRES,
                     product_filter: candidate,
                 })
+                if (error) throw new Error(error.message)
+                return data as NearbyRow[]
+            })
 
-                if (error) {
-                    throw new Error(error.message)
-                }
+            const geoResults = await Promise.all(geoPromises)
 
-                for (const row of (data || []) as NearbyRow[]) {
+            for (const data of geoResults) {
+                for (const row of (data || [])) {
                     const key = `${row.shop_id}:${row.product_id}`
                     if (resultsByKey.has(key)) continue
 

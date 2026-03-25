@@ -2,6 +2,8 @@
 
 -- Enable PostGIS extension for geolocation queries
 CREATE EXTENSION IF NOT EXISTS postgis;
+-- Enable pg_trgm for fast text search
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- 1. Profiles (Extends Supabase Auth Users)
 CREATE TABLE public.profiles (
@@ -20,11 +22,17 @@ CREATE TABLE public.shops (
   address TEXT NOT NULL,
   -- PostGIS Geography Point (Longitude, Latitude)
   location GEOGRAPHY(POINT) NOT NULL,
+  -- 'osm_chennai_metro' for OSM imports; NULL for owner-registered shops
+  source TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
 -- Index for fast proximity bounding-box searches
 CREATE INDEX shops_location_idx ON public.shops USING GIST (location);
+
+-- Fast cleanup of OSM imports by source tag
+CREATE INDEX shops_source_btree_idx ON public.shops (source);
+CREATE INDEX shops_source_trgm_idx  ON public.shops USING GIN (source gin_trgm_ops);
 
 -- 3. Products
 CREATE TABLE public.products (
@@ -38,6 +46,10 @@ CREATE TABLE public.products (
   in_stock BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+-- Indexes for fast ILIKE text search
+CREATE INDEX product_name_trgm_idx ON public.products USING GIN (name gin_trgm_ops);
+CREATE INDEX product_category_trgm_idx ON public.products USING GIN (category gin_trgm_ops);
 
 -- 4. Price History (For AI Predictions)
 CREATE TABLE public.price_history (
