@@ -1,9 +1,9 @@
 import { createBrowserClient } from '@supabase/ssr'
-import { getPublicSupabaseConfig } from './config'
+import { getPublicSupabaseConfig, hasPublicSupabaseConfig } from './config'
 
 export function createClient() {
     const config = getPublicSupabaseConfig()
-    if (config.error) {
+    if (!hasPublicSupabaseConfig(config)) {
         throw new Error(config.error)
     }
 

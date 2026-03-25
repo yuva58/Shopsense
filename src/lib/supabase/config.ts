@@ -3,9 +3,9 @@ const PLACEHOLDER_VALUES = new Set([
     'your_supabase_anon_key',
 ])
 
-type SupabasePublicConfig =
-    | { url: string; anonKey: string; error?: never }
-    | { error: string; url?: never; anonKey?: never }
+export type SupabasePublicConfig =
+    | { url: string; anonKey: string }
+    | { error: string }
 
 const normalize = (value: string | undefined) => value?.trim() ?? ''
 
@@ -38,4 +38,10 @@ export function getPublicSupabaseConfig(): SupabasePublicConfig {
     }
 
     return { url: parsed.toString().replace(/\/$/, ''), anonKey }
+}
+
+export function hasPublicSupabaseConfig(
+    config: SupabasePublicConfig
+): config is { url: string; anonKey: string } {
+    return 'url' in config && 'anonKey' in config
 }

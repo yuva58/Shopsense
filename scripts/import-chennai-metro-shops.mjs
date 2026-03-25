@@ -1,11 +1,6 @@
 #!/usr/bin/env node
-// import-tamilnadu-shops.mjs
-// Imports OSM shops from all of Tamil Nadu (not just Chennai) into Supabase.
-// Run: node scripts/import-tamilnadu-shops.mjs
-// Env overrides:
-//   OVERPASS_ENDPOINT            — custom Overpass endpoint
-//   TAMILNADU_IMPORT_MAX_SHOPS   — max shops to import (default 1500)
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,7 +32,7 @@ function chunkArray(items, size) {
 
 function stableHash(input) {
     let hash = 2166136261
-    for (let i = 0; i < input.length; i++) {
+    for (let i = 0; i < input.length; i += 1) {
         hash ^= input.charCodeAt(i)
         hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)
     }
@@ -52,12 +47,12 @@ function normalizeSpaces(text) {
     return text.replace(/\s+/g, ' ').trim()
 }
 
-function buildAddress(tags, fallbackState = 'Tamil Nadu') {
+function buildAddress(tags) {
     const firstLine = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ')
     const rest = [
         tags['addr:suburb'],
         tags['addr:city'] || tags['addr:town'] || tags['addr:village'],
-        tags['addr:district'],
+        tags['addr:district'] || tags['addr:county'],
         tags['addr:state'],
         tags['addr:postcode'],
     ]
@@ -65,12 +60,12 @@ function buildAddress(tags, fallbackState = 'Tamil Nadu') {
         .join(', ')
 
     let address = [firstLine, rest].filter(Boolean).join(', ')
-    if (!address) address = tags['addr:full'] || tags['name'] || fallbackState
+    if (!address) address = tags['addr:full'] || tags.name || 'Chennai Metro Region'
 
-    // Ensure state context is present for Tamil Nadu shops outside Chennai
-    if (!/tamil\s*nadu/i.test(address) && !/chennai/i.test(address)) {
+    if (!address.toLowerCase().includes('tamil nadu')) {
         address = `${address}, Tamil Nadu`
     }
+
     return normalizeSpaces(address)
 }
 
@@ -78,28 +73,18 @@ function readCoordinates(element) {
     if (typeof element.lat === 'number' && typeof element.lon === 'number') {
         return { lat: element.lat, lon: element.lon }
     }
-    if (
-        element.center &&
-        typeof element.center.lat === 'number' &&
-        typeof element.center.lon === 'number'
-    ) {
+    if (element.center && typeof element.center.lat === 'number' && typeof element.center.lon === 'number') {
         return { lat: element.center.lat, lon: element.center.lon }
     }
     return null
 }
 
 async function fetchOsmShops(overpassEndpoints, maxShops) {
-    // Full Tamil Nadu bounding box (south, west, north, east)
-    // Covers Chennai, Thiruvallur, Kancheepuram, Vellore, Coimbatore, Madurai, etc.
-    const BBOX = '8.07,76.23,13.56,80.40'
-
-    // Expanded shop types: covers supermarkets, grocers, vegetable/fruit shops,
-    // dry goods, dairy, bakeries, butchers, seafood, wholesale, spice shops.
+    const BBOX = '12.35,79.55,13.62,80.45'
     const SHOP_TYPES = [
         'supermarket', 'convenience', 'grocery', 'greengrocer', 'dairy',
         'bakery', 'butcher', 'seafood', 'department_store', 'mall',
-        'farm', 'health_food', 'organic', 'wholesale', 'variety_store',
-        'general', 'frozen_food', 'nuts', 'spices', 'deli',
+        'organic', 'health_food', 'wholesale', 'general', 'variety_store',
     ].join('|')
 
     const query = `
@@ -116,22 +101,19 @@ out center;
     let lastError = null
     for (const endpoint of overpassEndpoints) {
         try {
-            console.log(`  Trying endpoint: ${endpoint}`)
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'text/plain; charset=utf-8',
-                    'User-Agent': 'ShopSense TamilNadu Importer/2.0',
+                    'User-Agent': 'ShopSense ChennaiMetro Importer/1.0',
                 },
                 body: query,
             })
             if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
             json = await response.json()
-            console.log(`  Success from: ${endpoint}`)
             break
         } catch (error) {
             lastError = error
-            console.warn(`  Failed: ${endpoint} — ${error.message}`)
         }
     }
 
@@ -151,19 +133,20 @@ out center;
         if (!name || !coords) continue
 
         const key = `${element.type}/${element.id}`
-        const address = buildAddress(tags)
-        const shopType = tags.shop || 'shop'
-
-        deduped.set(key, { osmRef: key, name, address, lat: coords.lat, lon: coords.lon, shopType })
+        deduped.set(key, {
+            osmRef: key,
+            name,
+            address: buildAddress(tags),
+            lat: coords.lat,
+            lon: coords.lon,
+            shopType: tags.shop || 'shop',
+        })
     }
 
-    const all = Array.from(deduped.values())
-    console.log(`  ${elements.length} OSM elements → ${all.length} unique named shops (before cap)`)
-    return all.slice(0, maxShops)
+    return Array.from(deduped.values()).slice(0, maxShops)
 }
 
 async function insertOsmShops(supabase, shops) {
-    // Clean up previous Tamil Nadu OSM imports (both old Chennai and new TN tags)
     const { error: cleanupError } = await supabase
         .from('shops')
         .delete()
@@ -175,17 +158,14 @@ async function insertOsmShops(supabase, shops) {
 
     const rows = shops.map((shop) => ({
         name: shop.name,
-        description: `osm_import:${shop.osmRef};type=${shop.shopType}`,
+        description: `osm_import:${shop.osmRef};type=${shop.shopType};scope=chennai_metro`,
         address: shop.address,
         location: `POINT(${shop.lon} ${shop.lat})`,
     }))
 
     const inserted = []
     for (const chunk of chunkArray(rows, 200)) {
-        const { data, error } = await supabase
-            .from('shops')
-            .insert(chunk)
-            .select('id, name, description')
+        const { data, error } = await supabase.from('shops').insert(chunk).select('id, name')
         if (error) throw new Error(`Failed to insert shops: ${error.message}`)
         inserted.push(...(data || []))
     }
@@ -193,55 +173,62 @@ async function insertOsmShops(supabase, shops) {
     return inserted
 }
 
-async function insertDemoProducts(supabase, insertedShops) {
-    // 12 product templates — covers vegetables, fruits, dairy, staples, bakery, poultry.
+async function insertCuratedProducts(supabase, shops) {
     const templates = [
-        // Vegetables
-        { name: 'Potato (per kg)', category: 'Vegetables', min: 18, max: 45 },
-        { name: 'Onion (per kg)', category: 'Vegetables', min: 20, max: 60 },
-        { name: 'Tomato (per kg)', category: 'Vegetables', min: 15, max: 80 },
-        { name: 'Carrot (per kg)', category: 'Vegetables', min: 25, max: 55 },
-        // Fruits
-        { name: 'Banana (dozen)', category: 'Fruits', min: 30, max: 60 },
-        { name: 'Apple (per kg)', category: 'Fruits', min: 80, max: 180 },
-        // Dairy
-        { name: 'Milk 1L', category: 'Dairy', min: 52, max: 78 },
-        { name: 'Curd 500g', category: 'Dairy', min: 30, max: 55 },
-        // Staples
-        { name: 'Ponni Rice (per kg)', category: 'Staples', min: 40, max: 70 },
-        { name: 'Toor Dal (per kg)', category: 'Staples', min: 80, max: 140 },
-        // Bakery
-        { name: 'Bread 400g', category: 'Bakery', min: 35, max: 55 },
-        // Poultry
-        { name: 'Eggs (6 pack)', category: 'Poultry', min: 45, max: 75 },
-        // Beverages
-        { name: 'Coca Cola 2L', category: 'Beverages', min: 90, max: 110 },
-        // Cleaning
-        { name: 'Surf Excel Detergent 1kg', category: 'Cleaning', min: 110, max: 150 },
+        { name: 'Milk 1L', category: 'Dairy', min: 48, max: 78 },
+        { name: 'Bread 400g', category: 'Bakery', min: 32, max: 55 },
+        { name: 'Eggs 6 pack', category: 'Poultry', min: 42, max: 76 },
+        { name: 'Coca Cola 750ml', category: 'Soft Drinks', min: 38, max: 58 },
+        { name: 'Pepsi 750ml', category: 'Soft Drinks', min: 36, max: 56 },
+        { name: 'Detergent Powder 1kg', category: 'Home Care', min: 78, max: 145 },
+        { name: 'Bath Soap Pack', category: 'Personal Care', min: 42, max: 96 },
+        { name: 'Toothpaste 200g', category: 'Personal Care', min: 84, max: 132 },
+        { name: 'Ponni Rice 1kg', category: 'Staples', min: 44, max: 78 },
+        { name: 'Sunflower Oil 1L', category: 'Staples', min: 122, max: 178 },
+        { name: 'Biscuits Family Pack', category: 'Snacks', min: 28, max: 72 },
+        { name: 'Potato 1kg', category: 'Vegetables', min: 18, max: 42 },
     ]
 
     const productRows = []
-    for (const shop of insertedShops) {
+    const historyRows = []
+
+    for (const shop of shops) {
         for (const template of templates) {
+            const currentPrice = priceFromHash(`${shop.id}:${template.name}`, template.min, template.max)
+            const productId = crypto.randomUUID()
+
             productRows.push({
+                id: productId,
                 shop_id: shop.id,
                 name: template.name,
-                description: 'Demo product added by Tamil Nadu OSM import.',
-                current_price: priceFromHash(`${shop.id}:${template.name}`, template.min, template.max),
+                description: 'Curated metro-region beta product for public search and estimated availability.',
+                current_price: currentPrice,
                 category: template.category,
                 in_stock: true,
+            })
+
+            const historicalSeed = [0.98, 1.0, 1.03, 1.01]
+            historicalSeed.forEach((multiplier, index) => {
+                historyRows.push({
+                    product_id: productId,
+                    price: Math.max(1, Math.round(currentPrice * multiplier)),
+                    recorded_at: new Date(Date.now() - (index + 1) * 7 * 24 * 60 * 60 * 1000).toISOString(),
+                })
             })
         }
     }
 
-    let insertedCount = 0
     for (const chunk of chunkArray(productRows, 300)) {
         const { error } = await supabase.from('products').insert(chunk)
-        if (error) throw new Error(`Failed to insert demo products: ${error.message}`)
-        insertedCount += chunk.length
+        if (error) throw new Error(`Failed to insert curated products: ${error.message}`)
     }
 
-    return insertedCount
+    for (const chunk of chunkArray(historyRows, 600)) {
+        const { error } = await supabase.from('price_history').insert(chunk)
+        if (error) throw new Error(`Failed to insert price history: ${error.message}`)
+    }
+
+    return { products: productRows.length, history: historyRows.length }
 }
 
 async function main() {
@@ -257,41 +244,33 @@ async function main() {
             'https://overpass.kumi.systems/api/interpreter',
             'https://overpass.openstreetmap.fr/api/interpreter',
         ]
-    const maxShops = Number(process.env.TAMILNADU_IMPORT_MAX_SHOPS || '1500')
+    const maxShops = Number(process.env.CHENNAI_METRO_IMPORT_MAX_SHOPS || '900')
 
     if (!supabaseUrl || !serviceRoleKey) {
         throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local')
-    }
-    if (!Number.isFinite(maxShops) || maxShops <= 0) {
-        throw new Error('TAMILNADU_IMPORT_MAX_SHOPS must be a positive number.')
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    console.log(`\nShopSense — Tamil Nadu Shop Importer v2.0`)
-    console.log(`Max shops: ${maxShops}`)
-    console.log(`Querying Overpass API (Tamil Nadu bounding box: 8.07°N–13.56°N, 76.23°E–80.40°E)...\n`)
-
-    const osmShops = await fetchOsmShops(overpassEndpoints, maxShops)
-    if (osmShops.length === 0) {
-        throw new Error('No Tamil Nadu shops were returned from Overpass. Try again later.')
+    console.log('Fetching Chennai metro region shops from OSM...')
+    const shops = await fetchOsmShops(overpassEndpoints, maxShops)
+    if (shops.length === 0) {
+        throw new Error('No shops were returned for the metro region import.')
     }
 
-    console.log(`\nInserting ${osmShops.length} shops into Supabase (cleaning previous OSM import first)...`)
-    const insertedShops = await insertOsmShops(supabase, osmShops)
+    console.log(`Importing ${shops.length} shops...`)
+    const insertedShops = await insertOsmShops(supabase, shops)
+    const insertedData = await insertCuratedProducts(supabase, insertedShops)
 
-    console.log(`Seeding demo products (12 per shop)...`)
-    const insertedProducts = await insertDemoProducts(supabase, insertedShops)
-
-    console.log(`\n✅  Done!`)
-    console.log(`   Shops imported  : ${insertedShops.length}`)
-    console.log(`   Products seeded : ${insertedProducts}`)
-    console.log(`\nSearch for "potato", "milk", "Nilgiris", "onion" etc. to verify.`)
+    console.log(`Shops imported: ${insertedShops.length}`)
+    console.log(`Products inserted: ${insertedData.products}`)
+    console.log(`Price history rows inserted: ${insertedData.history}`)
+    console.log('Metro beta import complete.')
 }
 
 main().catch((error) => {
-    console.error('\n❌ Import failed:', error instanceof Error ? error.message : String(error))
+    console.error(error instanceof Error ? error.message : String(error))
     process.exit(1)
 })

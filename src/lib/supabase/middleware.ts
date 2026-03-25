@@ -1,11 +1,11 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { getPublicSupabaseConfig } from './config'
+import { getPublicSupabaseConfig, hasPublicSupabaseConfig } from './config'
 
 export async function updateSession(request: NextRequest) {
     const supabaseResponse = NextResponse.next({ request })
     const config = getPublicSupabaseConfig()
-    if (config.error) {
+    if (!hasPublicSupabaseConfig(config)) {
         return supabaseResponse
     }
 
@@ -16,7 +16,13 @@ export async function updateSession(request: NextRequest) {
             getAll() {
                 return request.cookies.getAll()
             },
-            setAll(cookiesToSet) {
+            setAll(
+                cookiesToSet: Array<{
+                    name: string
+                    value: string
+                    options: CookieOptions
+                }>
+            ) {
                 cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
                 response = NextResponse.next({ request })
                 cookiesToSet.forEach(({ name, value, options }) =>

@@ -1,0 +1,26 @@
+
+> shop-sense@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://172.24.144.1:3000
+- Environments: .env.local
+
+✓ Starting...
+Creating turbopack project { dir: 'D:\\Projects\\Clients\\Yuvashree\\shop-sense', testMode: true }
+✓ Ready in 10.1s
+ GET /api/search?q=milk 500 in 1538ms (compile: 1283ms, proxy.ts: 135ms, render: 119ms)
+ HEAD /search?q=milk 200 in 2.3s (compile: 2.1s, proxy.ts: 9ms, render: 194ms)
+ HEAD /dashboard/search?q=milk 307 in 2.4s (compile: 1918ms, proxy.ts: 138ms, render: 392ms)
+ GET / 307 in 26.3s (compile: 141ms, proxy.ts: 26.0s, render: 99ms)
+ GET /search 200 in 25.8s (compile: 6ms, proxy.ts: 25.8s, render: 53ms)
+ GET /api/search?q=milk&limit=8&lat=13.060869658918492&lng=80.27307535179416 500 in 52s (compile: 6ms, proxy.ts: 25.9s, render: 26.1s)
+ GET /api/search?q=milk 200 in 791ms (compile: 590ms, proxy.ts: 25ms, render: 177ms)
+ GET /api/search?q=coca%20cola 200 in 258ms (compile: 167ms, proxy.ts: 8ms, render: 83ms)
+ GET /api/search?q=milk&lat=13.0827&lng=80.2707 500 in 543ms (compile: 7ms, proxy.ts: 11ms, render: 525ms)
+ GET /api/search?q=milk&lat=13.0827&lng=80.2707 200 in 578ms (compile: 170ms, proxy.ts: 9ms, render: 399ms)
+ HEAD / 307 in 207ms (compile: 12ms, proxy.ts: 9ms, render: 186ms)
+ HEAD /search 200 in 93ms (compile: 16ms, proxy.ts: 10ms, render: 66ms)
+ GET / 307 in 129ms (compile: 8ms, proxy.ts: 6ms, render: 115ms)
+ GET /search 200 in 61ms (compile: 9ms, proxy.ts: 5ms, render: 47ms)
