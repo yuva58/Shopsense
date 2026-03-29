@@ -254,7 +254,7 @@ const createSearchPayload = (
     note: string
 ): SearchPayload => ({
     query,
-    coverage: 'Chennai, Tiruvallur, Chengalpattu, and Kanchipuram',
+    coverage: 'Chennai (incl. Poonamallee / Panimalar), Tiruvallur, Chengalpattu, and Kanchipuram',
     used_location: hasCoords,
     note,
     best_match: results[0] || null,

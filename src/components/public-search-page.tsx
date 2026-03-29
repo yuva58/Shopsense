@@ -93,7 +93,7 @@ export default function PublicSearchPage() {
     const [locating, setLocating] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [note, setNote] = useState<string | null>(null)
-    const [coverage, setCoverage] = useState('Chennai, Tiruvallur, Chengalpattu, and Kanchipuram')
+    const [coverage, setCoverage] = useState('Chennai (incl. Poonamallee / Panimalar), Tiruvallur, Chengalpattu, and Kanchipuram')
     const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
     const [lastQuery, setLastQuery] = useState('')
     const [hasSearched, setHasSearched] = useState(false)
@@ -192,7 +192,7 @@ export default function PublicSearchPage() {
                             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6C7C72]">Coverage</p>
                             <p className="mt-2 text-lg font-bold text-[#173225]">Chennai Metro + Nearby Districts</p>
                             <p className="mt-1 text-sm leading-6 text-[#5E6D63]">
-                                Chennai, Tiruvallur, Chengalpattu, and Kanchipuram.
+                                Chennai (incl. Poonamallee / Panimalar), Tiruvallur, Chengalpattu, and Kanchipuram.
                             </p>
                         </div>
                     </div>
